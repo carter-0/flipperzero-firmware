@@ -159,58 +159,49 @@ static void ble_app_hci_event_handler(void* pPayload) {
 
     tHCI_UserEvtRxParam* pParam = (tHCI_UserEvtRxParam*)pPayload;
     hci_event_pckt* hci_event_pckt_ptr = (hci_event_pckt*)&pParam->pckt->evtserial.evt;
-    bool sniffer_handled_event = false;
 
+    // Process event through dispatcher first to maintain proper flow control
+    BleEventFlowStatus event_flow_status = ble_event_dispatcher_process_event((void*)&(pParam->pckt->evtserial));
+
+    // After dispatcher processes, check if we need to forward to sniffer
     if(ble_app->sniffer_cb && furi_hal_bt_is_sniffer_active()) {
         if(hci_event_pckt_ptr->evt == HCI_LE_META_EVT_CODE) {
             evt_le_meta_event* meta_evt = (evt_le_meta_event*)hci_event_pckt_ptr->data;
             if(meta_evt->subevent == HCI_LE_ADVERTISING_REPORT_SUBEVT_CODE) {
+                // The advertising report format in meta_evt->data:
+                // [0] = Num_Reports
+                // [1..] = Report data
                 uint8_t num_reports = meta_evt->data[0];
-                uint8_t* current_report_ptr = &meta_evt->data[1]; // Point after Num_Reports
+                uint8_t* report_ptr = &meta_evt->data[1];
 
-                for(uint8_t i = 0; i < num_reports; ++i) {
-                    // Structure of each report:
+                for(uint8_t i = 0; i < num_reports; i++) {
+                    // Each report structure:
                     // Event_Type (1 octet)
-                    // Address_Type (1 octet)
+                    // Address_Type (1 octet) 
                     // Address (6 octets)
                     // Data_Length (1 octet)
                     // Data (Data_Length octets)
                     // RSSI (1 octet)
-                    uint8_t data_len = current_report_ptr[1 + 1 + 6]; // Index of Data_Length
-                    uint8_t* adv_data = &current_report_ptr[1 + 1 + 6 + 1]; // Start of Data
-                    int8_t rssi = (int8_t)current_report_ptr[1 + 1 + 6 + 1 + data_len]; // RSSI
-
+                    
+                    // Skip event_type (1 byte), addr_type (1 byte), and address (6 bytes)
+                    uint8_t data_len = report_ptr[8];
+                    uint8_t* adv_data = &report_ptr[9];
+                    int8_t rssi = (int8_t)report_ptr[9 + data_len];
+                    
+                    // Forward advertising data to sniffer callback
                     ble_app->sniffer_cb(adv_data, data_len, rssi, ble_app->sniffer_cb_context);
-
-                    // Advance pointer to the next report
-                    current_report_ptr += (1 + 1 + 6 + 1 + data_len + 1);
+                    
+                    // Move to next report
+                    report_ptr += (10 + data_len); // 1+1+6+1+data_len+1
                 }
-                sniffer_handled_event = true;
             } else if(meta_evt->subevent == HCI_LE_EXTENDED_ADVERTISING_REPORT_SUBEVT_CODE) {
-                // For extended advertising, parsing is more complex due to variable report structures.
-                // This is a simplified placeholder. Refer to Bluetooth Core Spec Vol 4, Part E, 7.7.65.13
-                // hci_le_extended_advertising_report_event_rp0* ext_adv_report = (hci_le_extended_advertising_report_event_rp0*)meta_evt->data;
-                // For now, log and skip detailed parsing for brevity.
-                FURI_LOG_D(TAG, "Sniffer: HCI_LE_EXTENDED_ADVERTISING_REPORT_EVENT received");
-                // Example: if (ext_adv_report->Num_Reports > 0) {
-                //    const uint8_t* data_ptr = ext_adv_report->Reports[0].Data; // This is pseudocode, actual struct is complex
-                //    uint8_t data_len = ext_adv_report->Reports[0].Data_Length;
-                //    int8_t rssi = ext_adv_report->Reports[0].RSSI;
-                //    ble_app->sniffer_cb(data_ptr, data_len, rssi, ble_app->sniffer_cb_context);
-                // }
-                sniffer_handled_event = true;
+                // Extended advertising reports are more complex, skip for now
+                FURI_LOG_D(TAG, "Extended advertising report received");
             }
         }
-        // NOTE: If aci_hal_rx_start produces a different, vendor-specific event for raw packets,
-        // it would need to be handled here (e.g., checking hci_event_pckt_ptr->evt == HCI_VENDOR_SPECIFIC_DEBUG_EVT_CODE
-        // and then the specific ecode).
     }
 
-    BleEventFlowStatus event_flow_status = BleEventFlowEnable;
-    if(!sniffer_handled_event || !furi_hal_bt_is_sniffer_active()) { // If sniffer didn't handle or isn't exclusively handling
-        event_flow_status = ble_event_dispatcher_process_event((void*)&(pParam->pckt->evtserial));
-    }
-
+    // Set flow control status
     if(event_flow_status != BleEventFlowDisable) {
         pParam->status = HCI_TL_UserEventFlow_Enable;
     } else {

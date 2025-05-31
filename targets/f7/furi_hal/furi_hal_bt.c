@@ -6,6 +6,7 @@
 
 #include <ble/ble.h>
 #include <interface/patterns/ble_thread/shci/shci.h>
+#include <ble/core/auto/ble_gap_aci.h>
 
 #include <stdbool.h>
 #include <stm32wbxx.h>
@@ -48,7 +49,6 @@ static FuriHalBtSnifferState furi_hal_bt_sniffer_state = {
     .callback = NULL,
     .context = NULL,
     .active = false,
-    .current_channel = 0,
 };
 
 void furi_hal_bt_init(void) {
@@ -186,6 +186,8 @@ FuriHalBleProfileBase* furi_hal_bt_start_app(
     furi_check(profile_template);
     furi_check(current_profile == NULL);
 
+    FURI_LOG_I(TAG, "furi_hal_bt_start_app"); // TODO(debug): remove
+
     do {
         if(!ble_glue_is_radio_stack_ready()) {
             FURI_LOG_E(TAG, "Can't start BLE App - radio stack did not start");
@@ -193,6 +195,10 @@ FuriHalBleProfileBase* furi_hal_bt_start_app(
         }
         if(!furi_hal_bt_is_gatt_gap_supported()) {
             FURI_LOG_E(TAG, "Can't start Ble App - unsupported radio stack");
+            break;
+        }
+        if (furi_hal_bt_sniffer_state.active) {
+            FURI_LOG_E(TAG, "Can't start BLE App - sniffer is active");
             break;
         }
 
@@ -220,8 +226,8 @@ void furi_hal_bt_reinit(void) {
 
     if(furi_hal_bt_sniffer_state.active) {
         FURI_LOG_I(TAG, "Stopping sniffer due to reinit");
-        // Directly stop RF part, sniffer_stop would try to re-acquire mutex
-        aci_hal_rx_stop();
+        // Directly stop observation procedure, sniffer_stop would try to re-acquire mutex
+        aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
         furi_hal_bt_sniffer_state.active = false; // Other fields cleared by sniffer_stop if called
     }
     furi_hal_bt_stop_advertising();
@@ -270,10 +276,6 @@ FuriHalBleProfileBase* furi_hal_bt_change_app(
 }
 
 bool furi_hal_bt_is_active(void) {
-    // If sniffer is active, GAP state might be misleading or irrelevant
-    if(furi_hal_bt_sniffer_state.active) {
-        return false; // Or true, depending on desired behavior. False seems safer.
-    }
     return gap_get_state() > GapStateIdle;
 }
 
@@ -470,19 +472,7 @@ bool furi_hal_bt_is_sniffer_active(void) {
     return furi_hal_bt_sniffer_state.active;
 }
 
-static void furi_hal_bt_on_raw_packet_event(
-    const uint8_t* data,
-    uint16_t len,
-    int8_t rssi,
-    void* context) {
-    UNUSED(context);
-    if(furi_hal_bt_sniffer_state.callback) {
-        furi_hal_bt_sniffer_state.callback(data, len, rssi, furi_hal_bt_sniffer_state.context);
-    }
-}
-
 bool furi_hal_bt_sniffer_start(
-    uint8_t channel,
     FuriHalBtSnifferPacketCallback callback,
     void* context) {
     furi_check(callback);
@@ -492,10 +482,43 @@ bool furi_hal_bt_sniffer_start(
 
     if(furi_hal_bt_sniffer_state.active) {
         FURI_LOG_W(TAG, "Sniffer already active, stopping first");
-        // Call internal stop logic, assumes lock is held
-        aci_hal_rx_stop();
+        // Terminate the observation procedure
+        aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
         ble_glue_set_hci_raw_packet_cb(NULL, NULL);
         furi_hal_bt_sniffer_state.active = false;
+    }
+
+    tBleStatus st;
+
+    st = aci_gatt_init();
+    if(st) {
+        FURI_LOG_E(TAG, "Failed to init GATT: %d", st);
+        if (st != 98) {
+            // 98 == GATT is already initialized, ignore
+            furi_hal_bt_unlock_core2();
+            return false;
+        }
+    }
+
+    aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
+    furi_delay_ms(100);
+
+    uint16_t gap_service_handle;
+    uint16_t gap_dev_name_handle;
+    uint16_t gap_appearance_handle;
+
+    st = aci_gap_init(
+        0x08, // GAP_OBSERVER_ROLE
+        0x00, // privacy disabled
+        0, // device name length
+        &gap_service_handle,
+        &gap_dev_name_handle,
+        &gap_appearance_handle);
+
+    if(st) {
+        FURI_LOG_E(TAG, "Failed to init GAP: %d", st);
+        furi_hal_bt_unlock_core2();
+        return false;
     }
 
     if(current_profile) {
@@ -504,14 +527,9 @@ bool furi_hal_bt_sniffer_start(
         current_profile->config->stop(current_profile);
         current_profile = NULL;
         gap_thread_stop(); // Stop GAP thread if it was running
-        // ble_app_deinit(); // This might be too much if aci_hal_rx_start works with initialized stack
-        // Forcing a reinit to ensure clean state might be safer
-        // but also heavier. Let's try without full reinit first.
-        // If issues, uncomment furi_hal_bt_reinit() below and handle its implications.
     }
 
-    // Ensure radio stack is running. furi_hal_bt_reinit() would do this.
-    // If not reiniting, we assume stack is already started.
+    // Ensure radio stack is running
     if(!ble_glue_is_radio_stack_ready()) {
         FURI_LOG_E(TAG, "Radio stack not ready for sniffer");
         furi_hal_bt_unlock_core2();
@@ -520,19 +538,30 @@ bool furi_hal_bt_sniffer_start(
 
     furi_hal_bt_sniffer_state.callback = callback;
     furi_hal_bt_sniffer_state.context = context;
+    
+    // Observation parameters
+    uint16_t scan_interval = 0x4000;  // 60 ms
+    uint16_t scan_window = 0x4000;    // 30 ms
+    uint8_t scan_type = 0;         // Passive scanning
+    uint8_t own_addr_type = 0;     // Public address
+    uint8_t filter_dup = 0;        // Don't filter duplicates - we want all packets
+    uint8_t filter_policy = 0;     // Accept all advertising packets
 
-    // Register the callback that will funnel events to the user
-    ble_glue_set_hci_raw_packet_cb(furi_hal_bt_on_raw_packet_event, NULL);
-
-    tBleStatus status = aci_hal_rx_start(channel);
+    tBleStatus status = aci_gap_start_observation_proc(
+        scan_interval,
+        scan_window,
+        scan_type,
+        own_addr_type,
+        filter_dup,
+        filter_policy
+    );
+        
     if(status == BLE_STATUS_SUCCESS) {
-        FURI_LOG_I(TAG, "Sniffer started on channel %d", channel);
-        furi_hal_bt_sniffer_state.current_channel = channel;
+        FURI_LOG_I(TAG, "Sniffer started in observation mode");
         furi_hal_bt_sniffer_state.active = true;
         success = true;
     } else {
-        FURI_LOG_E(TAG, "Failed to start sniffer RX on channel %d: 0x%02X", channel, status);
-        ble_glue_set_hci_raw_packet_cb(NULL, NULL); // Clean up callback registration
+        FURI_LOG_E(TAG, "Failed to start observation procedure: 0x%02X", status);
         furi_hal_bt_sniffer_state.callback = NULL;
         furi_hal_bt_sniffer_state.context = NULL;
     }
@@ -550,26 +579,15 @@ void furi_hal_bt_sniffer_stop(void) {
     }
 
     FURI_LOG_I(TAG, "Stopping sniffer");
-    aci_hal_rx_stop();
+    aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
     ble_glue_set_hci_raw_packet_cb(NULL, NULL);
     furi_hal_bt_sniffer_state.callback = NULL;
     furi_hal_bt_sniffer_state.context = NULL;
     furi_hal_bt_sniffer_state.active = false;
 
     furi_hal_bt_unlock_core2();
-    // Optional: furi_hal_bt_reinit() if needed to restore full stack functionality reliably
 }
 
-bool furi_hal_bt_sniffer_set_channel(uint8_t channel) {
-    // For simplicity, current sniffer_start takes channel.
-    // If already started, one might call stop then start, or implement more direct channel switch.
-    // This function re-uses start logic.
-    if(!furi_hal_bt_sniffer_state.active || !furi_hal_bt_sniffer_state.callback) {
-        FURI_LOG_W(TAG, "Sniffer not active or no callback, cannot set channel");
-        return false;
-    }
-    FURI_LOG_I(TAG, "Setting sniffer channel to %d", channel);
-    // Re-start sniffer on the new channel with existing callback
-    return furi_hal_bt_sniffer_start(
-        channel, furi_hal_bt_sniffer_state.callback, furi_hal_bt_sniffer_state.context);
+void furi_hal_bt_hci_user_evt_proc(void) {
+    hci_user_evt_proc();
 }

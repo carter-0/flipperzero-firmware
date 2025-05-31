@@ -536,6 +536,7 @@ static void gap_advetise_timer_callback(void* context) {
 }
 
 bool gap_init(GapConfig* config, GapEventCallback on_event_cb, void* context) {
+    FURI_LOG_I(TAG, "gap_init"); // TODO(debug): remove
     if(!ble_glue_is_radio_stack_ready()) {
         return false;
     }
