@@ -60,6 +60,11 @@ void ble_glue_set_key_storage_changed_callback(
     ble_glue->context = context;
 }
 
+void ble_glue_set_hci_raw_packet_cb(BleGlueHciRawPacketCallback callback, void* context) {
+    // Forward to ble_app layer, as ble_app owns the hci_event_handler
+    ble_app_set_hci_raw_packet_cb(callback, context);
+}
+
 static void furi_hal_bt_hardfault_check(void* context) {
     UNUSED(context);
     if(ble_glue_get_hardfault_info()) {

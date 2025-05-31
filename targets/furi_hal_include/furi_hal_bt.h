@@ -219,6 +219,45 @@ void furi_hal_bt_start_rx(uint8_t channel);
  */
 void furi_hal_bt_stop_rx(void);
 
+/** Callback for sniffer mode
+ * @param data      raw advertising PDU data
+ * @param len       length of data
+ * @param rssi      RSSI of received packet
+ * @param context   user context
+ */
+typedef void (
+    *FuriHalBtSnifferPacketCallback)(const uint8_t* data, uint16_t len, int8_t rssi, void* context);
+
+/** Start BLE sniffer mode
+ *
+ * @param[in]  channel   BLE channel to sniff on (0-39)
+ * @param[in]  callback  Callback function for received packets
+ * @param[in]  context   User context for the callback
+ *
+ * @return     true on success
+ */
+bool furi_hal_bt_sniffer_start(
+    uint8_t channel,
+    FuriHalBtSnifferPacketCallback callback,
+    void* context);
+
+/** Stop BLE sniffer mode
+ */
+void furi_hal_bt_sniffer_stop(void);
+
+/** Set BLE sniffer channel
+ *
+ * @param[in]  channel   BLE channel to sniff on (0-39)
+ *
+ * @return     true on success
+ */
+bool furi_hal_bt_sniffer_set_channel(uint8_t channel);
+
+/** Check if BLE sniffer is active
+ * @return     true if sniffer is active
+ */
+bool furi_hal_bt_is_sniffer_active(void);
+
 /** Get RSSI
  *
  * @return     RSSI in dBm

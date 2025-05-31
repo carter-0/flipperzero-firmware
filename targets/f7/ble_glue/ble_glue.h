@@ -58,6 +58,16 @@ typedef enum {
 typedef void (
     *BleGlueKeyStorageChangedCallback)(uint8_t* change_addr_start, uint16_t size, void* context);
 
+/**
+ * @brief Callback type for raw HCI packets/events (potentially vendor-specific for sniffing).
+ *
+ * @param data Raw packet/event data from HCI.
+ * @param len Length of the data.
+ * @param rssi RSSI if available with the packet event, else a general RSSI.
+ * @param context User-provided context (likely NULL if set by furi_hal_bt).
+ */
+typedef void (*BleGlueHciRawPacketCallback)(const uint8_t* data, uint16_t len, int8_t rssi, void* context);
+
 /** Initialize start core2 and initialize transport */
 void ble_glue_init(void);
 
@@ -99,6 +109,14 @@ bool ble_glue_is_radio_stack_ready(void);
 void ble_glue_set_key_storage_changed_callback(
     BleGlueKeyStorageChangedCallback callback,
     void* context);
+
+/**
+ * @brief Sets a callback for raw HCI packets, to be used for sniffing.
+ *
+ * @param callback The callback function.
+ * @param context Context for the callback.
+ */
+void ble_glue_set_hci_raw_packet_cb(BleGlueHciRawPacketCallback callback, void* context);
 
 bool ble_glue_reinit_c2(void);
 
