@@ -1,5 +1,5 @@
 entry,status,name,type,params
-Version,+,88.1,,
+Version,+,89.0,,
 Header,+,applications/drivers/subghz/cc1101_ext/cc1101_ext_interconnect.h,,
 Header,+,applications/services/bt/bt_service/bt.h,,
 Header,+,applications/services/bt/bt_service/bt_keys_storage.h,,
@@ -1303,7 +1303,6 @@ Function,+,furi_hal_bt_get_key_storage_buff,void,"uint8_t**, uint16_t*"
 Function,+,furi_hal_bt_get_radio_stack,FuriHalBtStack,
 Function,+,furi_hal_bt_get_rssi,float,
 Function,+,furi_hal_bt_get_transmitted_packets,uint32_t,
-Function,+,furi_hal_bt_hci_user_evt_proc,void,
 Function,-,furi_hal_bt_init,void,
 Function,+,furi_hal_bt_is_active,_Bool,
 Function,+,furi_hal_bt_is_alive,_Bool,
@@ -1315,6 +1314,7 @@ Function,+,furi_hal_bt_nvm_sram_sem_acquire,void,
 Function,+,furi_hal_bt_nvm_sram_sem_release,void,
 Function,+,furi_hal_bt_reinit,void,
 Function,+,furi_hal_bt_set_key_storage_change_callback,void,"BleGlueKeyStorageChangedCallback, void*"
+Function,-,furi_hal_bt_sniffer_get_state,const FuriHalBtSnifferState*,
 Function,+,furi_hal_bt_sniffer_start,_Bool,"FuriHalBtSnifferPacketCallback, void*"
 Function,+,furi_hal_bt_sniffer_stop,void,
 Function,+,furi_hal_bt_start_advertising,void,

@@ -5,6 +5,7 @@
 #include "furi_ble/event_dispatcher.h"
 #include <ble/ble.h>
 
+#include <furi_hal_bt.h>
 #include <furi_hal.h>
 #include <furi.h>
 #include <stdint.h>
@@ -130,11 +131,79 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
 
     event_pckt = (hci_event_pckt*)((hci_uart_pckt*)pckt)->data;
 
+    const FuriHalBtSnifferState* sniffer_state = furi_hal_bt_sniffer_get_state();
+
+    if (sniffer_state->active) {
+        // When our sniffer is active, C2 seems to send all packets to ble_event_app_notification
+
+        uint8_t *raw = (uint8_t*)pckt;
+        // HCI event layout: 
+        //   raw[0] = 0x04 (Event Packet)
+        //   raw[1] = 0x3E (LE Meta Event)
+        //   raw[2] = plen  (number of bytes that follow)
+        //   raw[3] = subevent (should be 0x02 for "LE Advertising Report")
+        //   raw[4] = num_reports
+        //   raw[5].. = first report...
+
+        uint16_t hci_len = 3 + event_pckt->plen; 
+        if (hci_len < 6) {
+            // too short to even contain "num_reports"
+            return BleEventFlowEnable;
+        }
+
+        uint8_t num_reports = raw[4];
+        if (num_reports < 1) {
+            // no reports to parse
+            return BleEventFlowEnable;
+        }
+
+        // Offset into the HCI payload where the first report begins:
+        //   report[0] = event_type (1 byte)
+        //   report[1] = address_type (1 byte)
+        //   report[2..7] = address (6 bytes)
+        //   report[8] = data_length (N)
+        //   report[9..(9+N-1)] = AD payload (N bytes)
+        //   report[9+N] = RSSI (1 byte)
+        //
+        // So, we skip 1+1+6 = 8 bytes from raw[5].
+
+        uint16_t offset = 5;               // start of first report
+        if (offset + 8 > hci_len) {        // need at least 8 bytes for event_type, addr_type, address
+            return BleEventFlowEnable;
+        }
+        offset += 8;                       // now points at data_length
+
+        if (offset >= hci_len) {
+            // no room for data_length
+            return BleEventFlowEnable;
+        }
+        uint8_t data_len = raw[offset];    // length of AD data
+        uint16_t ad_start = offset + 1;    // first byte of AD payload
+
+        // Check that AD payload and RSSI both fit inside the HCI event
+        uint16_t rssi_index = ad_start + data_len;
+        if (rssi_index >= hci_len) {
+            // malformed packet (AD data would overrun)
+            return BleEventFlowEnable;
+        }
+
+        int8_t rssi = (int8_t)raw[rssi_index];
+        uint8_t *adv_data = &raw[ad_start];
+
+        sniffer_state->callback(adv_data, data_len, rssi, sniffer_state->context);
+        return BleEventFlowEnable;
+    }
+
+    // TODO(debug): remove all new FURI_LOG_I's
+    // Log the main event type
+    FURI_LOG_I(TAG, "BLE event received: evt=0x%02X", event_pckt->evt);
+
     furi_check(gap);
     furi_check(furi_mutex_acquire(gap->state_mutex, FuriWaitForever) == FuriStatusOk);
 
     switch(event_pckt->evt) {
     case HCI_DISCONNECTION_COMPLETE_EVT_CODE: {
+        FURI_LOG_I(TAG, "Processing HCI_DISCONNECTION_COMPLETE_EVT_CODE");
         hci_disconnection_complete_event_rp0* disconnection_complete_event =
             (hci_disconnection_complete_event_rp0*)event_pckt->data;
         if(disconnection_complete_event->Connection_Handle == gap->service.connection_handle) {
@@ -157,8 +226,10 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
 
     case HCI_LE_META_EVT_CODE:
         meta_evt = (evt_le_meta_event*)event_pckt->data;
+        FURI_LOG_I(TAG, "Processing HCI_LE_META_EVT_CODE, subevent=0x%02X", meta_evt->subevent);
         switch(meta_evt->subevent) {
         case HCI_LE_CONNECTION_UPDATE_COMPLETE_SUBEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing HCI_LE_CONNECTION_UPDATE_COMPLETE_SUBEVT_CODE");
             hci_le_connection_update_complete_event_rp0* event =
                 (hci_le_connection_update_complete_event_rp0*)meta_evt->data;
             gap->connection_params.conn_interval = event->Conn_Interval;
@@ -170,6 +241,7 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         }
 
         case HCI_LE_PHY_UPDATE_COMPLETE_SUBEVT_CODE:
+            FURI_LOG_I(TAG, "Processing HCI_LE_PHY_UPDATE_COMPLETE_SUBEVT_CODE");
             evt_le_phy_update_complete = (hci_le_phy_update_complete_event_rp0*)meta_evt->data;
             if(evt_le_phy_update_complete->Status) {
                 FURI_LOG_E(
@@ -186,6 +258,7 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE");
             hci_le_connection_complete_event_rp0* event =
                 (hci_le_connection_complete_event_rp0*)meta_evt->data;
             gap->connection_params.conn_interval = event->Conn_Interval;
@@ -207,12 +280,14 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         default:
+            FURI_LOG_I(TAG, "Unhandled HCI_LE_META_EVT subevent: 0x%02X", meta_evt->subevent);
             break;
         }
         break;
 
     case HCI_VENDOR_SPECIFIC_DEBUG_EVT_CODE:
         blue_evt = (evt_blecore_aci*)event_pckt->data;
+        FURI_LOG_I(TAG, "Processing HCI_VENDOR_SPECIFIC_DEBUG_EVT_CODE, ecode=0x%04X", blue_evt->ecode);
         switch(blue_evt->ecode) {
             aci_gap_pairing_complete_event_rp0* pairing_complete;
 
@@ -221,6 +296,7 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case ACI_GAP_PASS_KEY_REQ_VSEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing ACI_GAP_PASS_KEY_REQ_VSEVT_CODE");
             // Generate random PIN code
             uint32_t pin = rand() % 999999; //-V1064
             aci_gap_pass_key_resp(gap->service.connection_handle, pin);
@@ -234,6 +310,7 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         case ACI_ATT_EXCHANGE_MTU_RESP_VSEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing ACI_ATT_EXCHANGE_MTU_RESP_VSEVT_CODE");
             aci_att_exchange_mtu_resp_event_rp0* pr = (void*)blue_evt->data;
             FURI_LOG_I(TAG, "Rx MTU size: %d", pr->Server_RX_MTU);
             // Set maximum packet size given header size is 3 bytes
@@ -243,28 +320,34 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         case ACI_GAP_AUTHORIZATION_REQ_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_AUTHORIZATION_REQ_VSEVT_CODE");
             FURI_LOG_D(TAG, "Authorization request event");
             break;
 
         case ACI_GAP_SLAVE_SECURITY_INITIATED_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_SLAVE_SECURITY_INITIATED_VSEVT_CODE");
             FURI_LOG_D(TAG, "Slave security initiated");
             gap->is_secure = true;
             break;
 
         case ACI_GAP_BOND_LOST_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_BOND_LOST_VSEVT_CODE");
             FURI_LOG_D(TAG, "Bond lost event. Start rebonding");
             aci_gap_allow_rebond(gap->service.connection_handle);
             break;
 
         case ACI_GAP_ADDR_NOT_RESOLVED_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_ADDR_NOT_RESOLVED_VSEVT_CODE");
             FURI_LOG_D(TAG, "Address not resolved event");
             break;
 
         case ACI_GAP_KEYPRESS_NOTIFICATION_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_KEYPRESS_NOTIFICATION_VSEVT_CODE");
             FURI_LOG_D(TAG, "Key press notification event");
             break;
 
         case ACI_GAP_NUMERIC_COMPARISON_VALUE_VSEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing ACI_GAP_NUMERIC_COMPARISON_VALUE_VSEVT_CODE");
             uint32_t pin =
                 ((aci_gap_numeric_comparison_value_event_rp0*)(blue_evt->data))->Numeric_Value;
             FURI_LOG_I(TAG, "Verify numeric comparison: %06lu", pin);
@@ -275,6 +358,7 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         }
 
         case ACI_GAP_PAIRING_COMPLETE_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_GAP_PAIRING_COMPLETE_VSEVT_CODE");
             pairing_complete = (aci_gap_pairing_complete_event_rp0*)blue_evt->data;
             if(pairing_complete->Status) {
                 FURI_LOG_E(
@@ -290,10 +374,12 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case ACI_L2CAP_CONNECTION_UPDATE_RESP_VSEVT_CODE:
+            FURI_LOG_I(TAG, "Processing ACI_L2CAP_CONNECTION_UPDATE_RESP_VSEVT_CODE");
             FURI_LOG_D(TAG, "Procedure complete event");
             break;
 
         case ACI_L2CAP_CONNECTION_UPDATE_REQ_VSEVT_CODE: {
+            FURI_LOG_I(TAG, "Processing ACI_L2CAP_CONNECTION_UPDATE_REQ_VSEVT_CODE");
             uint16_t result =
                 ((aci_l2cap_connection_update_resp_event_rp0*)(blue_evt->data))->Result;
             if(result == 0) {
@@ -303,8 +389,15 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             }
             break;
         }
+
+        default:
+            FURI_LOG_I(TAG, "Unhandled HCI_VENDOR_SPECIFIC_DEBUG_EVT ecode: 0x%04X", blue_evt->ecode);
+            break;
         }
+        break;
+
     default:
+        FURI_LOG_I(TAG, "Unhandled BLE event type: 0x%02X", event_pckt->evt);
         break;
     }
 

@@ -228,6 +228,14 @@ void furi_hal_bt_stop_rx(void);
 typedef void (
     *FuriHalBtSnifferPacketCallback)(const uint8_t* data, uint16_t len, int8_t rssi, void* context);
 
+/** Sniffer state structure */
+typedef struct {
+    FuriHalBtSnifferPacketCallback callback;
+    void* context;
+    bool active;
+    uint8_t current_channel;
+} FuriHalBtSnifferState;
+
 /** Start BLE sniffer mode
  *
  * @param[in]  channel   BLE channel to sniff on (0-39) - currently ignored, scans all advertising channels
@@ -322,9 +330,11 @@ bool furi_hal_bt_extra_beacon_is_active(void);
  */
 const GapExtraBeaconConfig* furi_hal_bt_extra_beacon_get_config(void);
 
-/** Drain BT HCI event queue
+/** Get sniffer state
+ *
+ * @return     sniffer state
  */
-void furi_hal_bt_hci_user_evt_proc(void);
+const FuriHalBtSnifferState* furi_hal_bt_sniffer_get_state(void);
 
 #ifdef __cplusplus
 }
