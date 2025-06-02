@@ -194,10 +194,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         return BleEventFlowEnable;
     }
 
-    // TODO(debug): remove all new FURI_LOG_I's
-    // Log the main event type
-    FURI_LOG_I(TAG, "BLE event received: evt=0x%02X", event_pckt->evt);
-
     furi_check(gap);
     furi_check(furi_mutex_acquire(gap->state_mutex, FuriWaitForever) == FuriStatusOk);
 
@@ -226,10 +222,8 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
 
     case HCI_LE_META_EVT_CODE:
         meta_evt = (evt_le_meta_event*)event_pckt->data;
-        FURI_LOG_I(TAG, "Processing HCI_LE_META_EVT_CODE, subevent=0x%02X", meta_evt->subevent);
         switch(meta_evt->subevent) {
         case HCI_LE_CONNECTION_UPDATE_COMPLETE_SUBEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing HCI_LE_CONNECTION_UPDATE_COMPLETE_SUBEVT_CODE");
             hci_le_connection_update_complete_event_rp0* event =
                 (hci_le_connection_update_complete_event_rp0*)meta_evt->data;
             gap->connection_params.conn_interval = event->Conn_Interval;
@@ -241,7 +235,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         }
 
         case HCI_LE_PHY_UPDATE_COMPLETE_SUBEVT_CODE:
-            FURI_LOG_I(TAG, "Processing HCI_LE_PHY_UPDATE_COMPLETE_SUBEVT_CODE");
             evt_le_phy_update_complete = (hci_le_phy_update_complete_event_rp0*)meta_evt->data;
             if(evt_le_phy_update_complete->Status) {
                 FURI_LOG_E(
@@ -258,7 +251,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE");
             hci_le_connection_complete_event_rp0* event =
                 (hci_le_connection_complete_event_rp0*)meta_evt->data;
             gap->connection_params.conn_interval = event->Conn_Interval;
@@ -280,14 +272,12 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         default:
-            FURI_LOG_I(TAG, "Unhandled HCI_LE_META_EVT subevent: 0x%02X", meta_evt->subevent);
             break;
         }
         break;
 
     case HCI_VENDOR_SPECIFIC_DEBUG_EVT_CODE:
         blue_evt = (evt_blecore_aci*)event_pckt->data;
-        FURI_LOG_I(TAG, "Processing HCI_VENDOR_SPECIFIC_DEBUG_EVT_CODE, ecode=0x%04X", blue_evt->ecode);
         switch(blue_evt->ecode) {
             aci_gap_pairing_complete_event_rp0* pairing_complete;
 
@@ -296,7 +286,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case ACI_GAP_PASS_KEY_REQ_VSEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing ACI_GAP_PASS_KEY_REQ_VSEVT_CODE");
             // Generate random PIN code
             uint32_t pin = rand() % 999999; //-V1064
             aci_gap_pass_key_resp(gap->service.connection_handle, pin);
@@ -310,7 +299,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         case ACI_ATT_EXCHANGE_MTU_RESP_VSEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing ACI_ATT_EXCHANGE_MTU_RESP_VSEVT_CODE");
             aci_att_exchange_mtu_resp_event_rp0* pr = (void*)blue_evt->data;
             FURI_LOG_I(TAG, "Rx MTU size: %d", pr->Server_RX_MTU);
             // Set maximum packet size given header size is 3 bytes
@@ -320,34 +308,28 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         } break;
 
         case ACI_GAP_AUTHORIZATION_REQ_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_AUTHORIZATION_REQ_VSEVT_CODE");
             FURI_LOG_D(TAG, "Authorization request event");
             break;
 
         case ACI_GAP_SLAVE_SECURITY_INITIATED_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_SLAVE_SECURITY_INITIATED_VSEVT_CODE");
             FURI_LOG_D(TAG, "Slave security initiated");
             gap->is_secure = true;
             break;
 
         case ACI_GAP_BOND_LOST_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_BOND_LOST_VSEVT_CODE");
             FURI_LOG_D(TAG, "Bond lost event. Start rebonding");
             aci_gap_allow_rebond(gap->service.connection_handle);
             break;
 
         case ACI_GAP_ADDR_NOT_RESOLVED_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_ADDR_NOT_RESOLVED_VSEVT_CODE");
             FURI_LOG_D(TAG, "Address not resolved event");
             break;
 
         case ACI_GAP_KEYPRESS_NOTIFICATION_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_KEYPRESS_NOTIFICATION_VSEVT_CODE");
             FURI_LOG_D(TAG, "Key press notification event");
             break;
 
         case ACI_GAP_NUMERIC_COMPARISON_VALUE_VSEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing ACI_GAP_NUMERIC_COMPARISON_VALUE_VSEVT_CODE");
             uint32_t pin =
                 ((aci_gap_numeric_comparison_value_event_rp0*)(blue_evt->data))->Numeric_Value;
             FURI_LOG_I(TAG, "Verify numeric comparison: %06lu", pin);
@@ -358,7 +340,6 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
         }
 
         case ACI_GAP_PAIRING_COMPLETE_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_GAP_PAIRING_COMPLETE_VSEVT_CODE");
             pairing_complete = (aci_gap_pairing_complete_event_rp0*)blue_evt->data;
             if(pairing_complete->Status) {
                 FURI_LOG_E(
@@ -374,12 +355,10 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             break;
 
         case ACI_L2CAP_CONNECTION_UPDATE_RESP_VSEVT_CODE:
-            FURI_LOG_I(TAG, "Processing ACI_L2CAP_CONNECTION_UPDATE_RESP_VSEVT_CODE");
             FURI_LOG_D(TAG, "Procedure complete event");
             break;
 
         case ACI_L2CAP_CONNECTION_UPDATE_REQ_VSEVT_CODE: {
-            FURI_LOG_I(TAG, "Processing ACI_L2CAP_CONNECTION_UPDATE_REQ_VSEVT_CODE");
             uint16_t result =
                 ((aci_l2cap_connection_update_resp_event_rp0*)(blue_evt->data))->Result;
             if(result == 0) {
@@ -389,15 +368,8 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             }
             break;
         }
-
-        default:
-            FURI_LOG_I(TAG, "Unhandled HCI_VENDOR_SPECIFIC_DEBUG_EVT ecode: 0x%04X", blue_evt->ecode);
-            break;
         }
-        break;
-
     default:
-        FURI_LOG_I(TAG, "Unhandled BLE event type: 0x%02X", event_pckt->evt);
         break;
     }
 
@@ -629,7 +601,6 @@ static void gap_advetise_timer_callback(void* context) {
 }
 
 bool gap_init(GapConfig* config, GapEventCallback on_event_cb, void* context) {
-    FURI_LOG_I(TAG, "gap_init"); // TODO(debug): remove
     if(!ble_glue_is_radio_stack_ready()) {
         return false;
     }
