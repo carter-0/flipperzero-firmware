@@ -43,6 +43,7 @@ static FuriHalBtSnifferState furi_hal_bt_sniffer_state = {
     .callback = NULL,
     .context = NULL,
     .active = false,
+    .stopping = false,
 };
 
 void furi_hal_bt_init(void) {
@@ -216,12 +217,6 @@ void furi_hal_bt_reinit(void) {
     furi_hal_power_insomnia_enter();
     FURI_LOG_I(TAG, "Disconnect and stop advertising");
 
-    if(furi_hal_bt_sniffer_state.active) {
-        FURI_LOG_I(TAG, "Stopping sniffer due to reinit");
-        // Directly stop observation procedure, sniffer_stop would try to re-acquire mutex
-        aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
-        furi_hal_bt_sniffer_state.active = false; // Other fields cleared by sniffer_stop if called
-    }
     furi_hal_bt_stop_advertising();
 
     if(current_profile) {
@@ -571,11 +566,17 @@ void furi_hal_bt_sniffer_stop(void) {
     }
 
     FURI_LOG_I(TAG, "Stopping sniffer");
+
+    furi_hal_bt_sniffer_state.stopping = true;
     aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
-    ble_glue_set_hci_raw_packet_cb(NULL, NULL);
+
+    furi_delay_ms(500); // Wait for the sniffer to stop (can probably be reduced)
+
+    furi_hal_bt_sniffer_state.stopping = false;
+    furi_hal_bt_sniffer_state.active = false;
+
     furi_hal_bt_sniffer_state.callback = NULL;
     furi_hal_bt_sniffer_state.context = NULL;
-    furi_hal_bt_sniffer_state.active = false;
 
     furi_hal_bt_unlock_core2();
 }

@@ -233,6 +233,7 @@ typedef struct {
     FuriHalBtSnifferPacketCallback callback;
     void* context;
     bool active;
+    bool stopping;
     uint8_t current_channel;
 } FuriHalBtSnifferState;
 

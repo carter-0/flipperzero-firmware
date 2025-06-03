@@ -133,6 +133,11 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
 
     const FuriHalBtSnifferState* sniffer_state = furi_hal_bt_sniffer_get_state();
 
+    if (sniffer_state->stopping) {
+        // Ignore residual packets while stopping sniffer
+        return BleEventFlowEnable;
+    }
+
     if (sniffer_state->active) {
         // When our sniffer is active, C2 seems to send all packets to ble_event_app_notification
 
@@ -157,40 +162,30 @@ BleEventFlowStatus ble_event_app_notification(void* pckt) {
             return BleEventFlowEnable;
         }
 
-        // Offset into the HCI payload where the first report begins:
+        // Parse to extract RSSI from the advertising report:
         //   report[0] = event_type (1 byte)
-        //   report[1] = address_type (1 byte)
+        //   report[1] = address_type (1 byte) 
         //   report[2..7] = address (6 bytes)
         //   report[8] = data_length (N)
         //   report[9..(9+N-1)] = AD payload (N bytes)
         //   report[9+N] = RSSI (1 byte)
-        //
-        // So, we skip 1+1+6 = 8 bytes from raw[5].
 
         uint16_t offset = 5;               // start of first report
-        if (offset + 8 > hci_len) {        // need at least 8 bytes for event_type, addr_type, address
+        if (offset + 9 > hci_len) {        // need at least 9 bytes for header + data_length
             return BleEventFlowEnable;
         }
-        offset += 8;                       // now points at data_length
-
-        if (offset >= hci_len) {
-            // no room for data_length
-            return BleEventFlowEnable;
-        }
-        uint8_t data_len = raw[offset];    // length of AD data
-        uint16_t ad_start = offset + 1;    // first byte of AD payload
-
-        // Check that AD payload and RSSI both fit inside the HCI event
-        uint16_t rssi_index = ad_start + data_len;
+        
+        uint8_t data_len = raw[offset + 8]; // length of AD data
+        uint16_t rssi_index = offset + 9 + data_len; // RSSI location
+        
         if (rssi_index >= hci_len) {
-            // malformed packet (AD data would overrun)
+            // malformed packet (RSSI would overrun)
             return BleEventFlowEnable;
         }
 
         int8_t rssi = (int8_t)raw[rssi_index];
-        uint8_t *adv_data = &raw[ad_start];
 
-        sniffer_state->callback(adv_data, data_len, rssi, sniffer_state->context);
+        sniffer_state->callback(raw, hci_len, rssi, sniffer_state->context);
         return BleEventFlowEnable;
     }
 
