@@ -27,5 +27,5 @@ This is the Flipper Zero firmware fork I created to get [AirDox](https://github.
 1. `git clone https://github.com/carter-0/flipperzero-firmware`
 2. `cd flipperzero-firmware`
 3. Connect your Flipper Zero to your device
-4. `./fbt updater_package COMPACT=1 DEBUG=1 COPRO_STACK_BIN=stm32wb5x_BLE_Stack_full_fw.bin COPRO_STACK_TYPE=ble_full`
-5. `./fbt COMPACT=1 DEBUG=1 COPRO_STACK_TYPE=ble_full COPRO_STACK_BIN=stm32wb5x_BLE_Stack_full_fw.bin COPRO_OB_DATA=scripts/ob_custradio.data COPRO_DISCLAIMER=1 flash_usb_full`
+4. `./fbt updater_package COMPACT=1 DEBUG=0 COPRO_STACK_BIN=stm32wb5x_BLE_Stack_full_fw.bin COPRO_STACK_TYPE=ble_full`
+5. `./fbt COMPACT=1 DEBUG=0 COPRO_STACK_TYPE=ble_full COPRO_STACK_BIN=stm32wb5x_BLE_Stack_full_fw.bin COPRO_OB_DATA=scripts/ob_custradio.data COPRO_DISCLAIMER=1 flash_usb_full`
