@@ -161,7 +161,8 @@ static void ble_app_hci_event_handler(void* pPayload) {
     hci_event_pckt* hci_event_pckt_ptr = (hci_event_pckt*)&pParam->pckt->evtserial.evt;
 
     // Process event through dispatcher first to maintain proper flow control
-    BleEventFlowStatus event_flow_status = ble_event_dispatcher_process_event((void*)&(pParam->pckt->evtserial));
+    BleEventFlowStatus event_flow_status =
+        ble_event_dispatcher_process_event((void*)&(pParam->pckt->evtserial));
 
     // After dispatcher processes, check if we need to forward to sniffer
     if(ble_app->sniffer_cb && furi_hal_bt_is_sniffer_active()) {
@@ -177,20 +178,20 @@ static void ble_app_hci_event_handler(void* pPayload) {
                 for(uint8_t i = 0; i < num_reports; i++) {
                     // Each report structure:
                     // Event_Type (1 octet)
-                    // Address_Type (1 octet) 
+                    // Address_Type (1 octet)
                     // Address (6 octets)
                     // Data_Length (1 octet)
                     // Data (Data_Length octets)
                     // RSSI (1 octet)
-                    
+
                     // Skip event_type (1 byte), addr_type (1 byte), and address (6 bytes)
                     uint8_t data_len = report_ptr[8];
                     uint8_t* adv_data = &report_ptr[9];
                     int8_t rssi = (int8_t)report_ptr[9 + data_len];
-                    
+
                     // Forward advertising data to sniffer callback
                     ble_app->sniffer_cb(adv_data, data_len, rssi, ble_app->sniffer_cb_context);
-                    
+
                     // Move to next report
                     report_ptr += (10 + data_len); // 1+1+6+1+data_len+1
                 }

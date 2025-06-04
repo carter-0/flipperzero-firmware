@@ -245,9 +245,7 @@ typedef struct {
  *
  * @return     true on success
  */
-bool furi_hal_bt_sniffer_start(
-    FuriHalBtSnifferPacketCallback callback,
-    void* context);
+bool furi_hal_bt_sniffer_start(FuriHalBtSnifferPacketCallback callback, void* context);
 
 /** Stop BLE sniffer mode
  */

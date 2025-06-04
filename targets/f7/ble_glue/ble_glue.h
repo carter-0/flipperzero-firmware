@@ -66,7 +66,8 @@ typedef void (
  * @param rssi RSSI if available with the packet event, else a general RSSI.
  * @param context User-provided context (likely NULL if set by furi_hal_bt).
  */
-typedef void (*BleGlueHciRawPacketCallback)(const uint8_t* data, uint16_t len, int8_t rssi, void* context);
+typedef void (
+    *BleGlueHciRawPacketCallback)(const uint8_t* data, uint16_t len, int8_t rssi, void* context);
 
 /** Initialize start core2 and initialize transport */
 void ble_glue_init(void);

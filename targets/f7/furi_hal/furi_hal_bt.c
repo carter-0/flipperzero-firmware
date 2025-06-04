@@ -33,7 +33,6 @@ typedef struct {
     FuriHalBtStack stack;
 } FuriHalBt;
 
-
 static FuriHalBt furi_hal_bt = {
     .core2_mtx = NULL,
     .stack = FuriHalBtStackUnknown,
@@ -190,7 +189,7 @@ FuriHalBleProfileBase* furi_hal_bt_start_app(
             FURI_LOG_E(TAG, "Can't start Ble App - unsupported radio stack");
             break;
         }
-        if (furi_hal_bt_sniffer_state.active) {
+        if(furi_hal_bt_sniffer_state.active) {
             FURI_LOG_E(TAG, "Can't start BLE App - sniffer is active");
             break;
         }
@@ -463,9 +462,7 @@ bool furi_hal_bt_is_sniffer_active(void) {
     return furi_hal_bt_sniffer_state.active;
 }
 
-bool furi_hal_bt_sniffer_start(
-    FuriHalBtSnifferPacketCallback callback,
-    void* context) {
+bool furi_hal_bt_sniffer_start(FuriHalBtSnifferPacketCallback callback, void* context) {
     furi_check(callback);
     furi_hal_bt_lock_core2();
 
@@ -483,7 +480,7 @@ bool furi_hal_bt_sniffer_start(
     st = aci_gatt_init();
     if(st) {
         // 98 == GATT is already initialized, ignore
-        if (st != 98) {
+        if(st != 98) {
             FURI_LOG_E(TAG, "Failed to init GATT: %d", st);
             furi_hal_bt_unlock_core2();
             return false;
@@ -524,23 +521,17 @@ bool furi_hal_bt_sniffer_start(
 
     furi_hal_bt_sniffer_state.callback = callback;
     furi_hal_bt_sniffer_state.context = context;
-    
+
     // Observation parameters
-    uint16_t scan_interval = 0x0004;  // 2.500 ms
-    uint16_t scan_window = 0x0004;    // 2.500 ms
-    uint8_t scan_type = 0;            // Passive scanning
-    uint8_t own_addr_type = 0;        // Public address
-    uint8_t filter_dup = 1;           // Filter duplicates
-    uint8_t filter_policy = 0;        // Accept all advertising packets
+    uint16_t scan_interval = 0x0004; // 2.500 ms
+    uint16_t scan_window = 0x0004; // 2.500 ms
+    uint8_t scan_type = 0; // Passive scanning
+    uint8_t own_addr_type = 0; // Public address
+    uint8_t filter_dup = 1; // Filter duplicates
+    uint8_t filter_policy = 0; // Accept all advertising packets
 
     tBleStatus status = aci_gap_start_observation_proc(
-        scan_interval,
-        scan_window,
-        scan_type,
-        own_addr_type,
-        filter_dup,
-        filter_policy
-    );
+        scan_interval, scan_window, scan_type, own_addr_type, filter_dup, filter_policy);
 
     furi_hal_bt_unlock_core2();
 
